@@ -22,4 +22,10 @@ return [
     'taglib_begin'  => '{',
     // 标签库标签结束标记
     'taglib_end'    => '}',
+    // 输出替换
+    'tpl_replace_string' => [
+        '__layuiadmin__' => '/static/layuiadmin',
+        '__css__' => '/static/css',
+        '__js__' => '/static/js',
+    ]
 ];

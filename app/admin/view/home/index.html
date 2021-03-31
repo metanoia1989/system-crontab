@@ -1,0 +1,36 @@
+{extend name="common" /}
+
+{block name="content"}
+<body class="layui-layout-body">
+<div id="LAY_app">
+  <div class="layui-layout layui-layout-admin">
+    <!-- 头部区域 -->
+    {include file="base/header" /}
+
+    <!-- 侧边菜单 -->
+    {include file="base/side" /}
+
+    <!-- 页面标签 -->
+    {include file="base/pagetabs" /}
+
+    <!-- 主体内容 -->
+    <div class="layui-body" id="LAY_app_body">
+      <div class="layadmin-tabsbody-item layui-show">
+        <iframe src="home/console.html" frameborder="0" class="layadmin-iframe"></iframe>
+      </div>
+    </div>
+
+    <!-- 辅助元素，一般用于移动设备下遮罩 -->
+    <div class="layadmin-body-shade" layadmin-event="shade"></div>
+  </div>
+</div>
+</body>
+{/block}
+
+{block name="js"}
+<script>
+    layui.extend({
+        index: 'lib/index' //主入口模块，会追加base到modules目录
+    }).use(['index']);
+</script>
+{/block}

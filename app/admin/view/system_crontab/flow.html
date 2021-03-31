@@ -1,0 +1,57 @@
+{extend name="common" /}
+
+{block name='content'}
+<div class="layuimini-container">
+    <div class="layuimini-main">
+        <div class="layui-form">
+            <input type="checkbox" lay-filter="monitor" lay-skin="switch" lay-text="实时监听开|实时监听关"/>
+        </div>
+        <table id="currentTable" class="layui-table layui-hide" lay-filter="currentTable"
+               data-auth-add="1"
+               data-auth-edit="1"
+               data-auth-delete="1">
+        </table>
+    </div>
+</div>
+{/block}
+
+{block name="js"}
+<script>
+    layui.extend({
+        ea: 'lay-module/ea/ea.min'
+    }).use(['ea', 'table', 'form'], function () {
+        let ea = layui.ea,
+            table = layui.table,
+            form = layui.form,
+            intervalID,
+            init = {
+                table_elem: '#currentTable',
+                table_render_id: 'currentTableRenderId',
+                index_url: 'admin/system_crontab/flow?id=' + {$id}
+            };
+
+        ea.table.render({
+            init: init,
+            toolbar: ['refresh', 'export'],
+            cellMinWidth: 100,
+            cols: [[
+                {field: 'create_time', title: '创建时间', sort: true, search: 'range'},
+                {field: 'remark', title: '备注', search: false},
+            ]],
+        });
+
+        form.on('switch(monitor)', function (data) {
+            if (data.elem.checked) {
+                intervalID = setInterval(function () {
+                    table.reload(init.table_render_id);
+                }, 1000);
+            } else {
+                clearInterval(intervalID);
+            }
+
+        });
+
+        ea.listen();
+    });
+</script>
+{/block}
