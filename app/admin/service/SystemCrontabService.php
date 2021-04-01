@@ -48,6 +48,12 @@ class SystemCrontabService
     private static $socketName = 'http://127.0.0.1:2345';
 
     /**
+     * 错误信息
+     * @var
+     */
+    private $errorMsg;
+
+    /**
      * @param string $socketName 不填写表示不监听任何端口,格式为 <协议>://<监听地址> 协议支持 tcp、udp、unix、http、websocket、text
      * @param array $contextOption socket 上下文选项 http://php.net/manual/zh/context.socket.php
      */
@@ -63,21 +69,8 @@ class SystemCrontabService
         TcpConnection::$defaultMaxSendBufferSize = 2 * 1024 * 1024;//设置所有连接的默认应用层发送缓冲区大小。默认1M。可以动态设置
         TcpConnection::$defaultMaxPackageSize = 10 * 1024 * 1024;//设置每个连接接收的数据包。默认10M。超包视为非法数据，连接会断开
         $this->registerCallback();
+        ($result = $this->checkEnv()) !== true && $this->errorMsg = $result;
     }
-
-    private function registerCallback()
-    {
-        $this->worker->onWorkerStart = [$this, 'onWorkerStart'];
-        $this->worker->onWorkerReload = [$this, 'onWorkerReload'];
-        $this->worker->onWorkerStop = [$this, 'onWorkerStop'];
-        $this->worker->onConnect = [$this, 'onConnect'];
-        $this->worker->onMessage = [$this, 'onMessage'];
-        $this->worker->onClose = [$this, 'onClose'];
-        $this->worker->onBufferFull = [$this, 'onBufferFull'];
-        $this->worker->onBufferDrain = [$this, 'onBufferDrain'];
-        $this->worker->onError = [$this, 'onError'];
-    }
-
 
     /**
      * 是否调试模式
@@ -187,6 +180,22 @@ class SystemCrontabService
         Worker::$stdoutFile = $path;
 
         return $this;
+    }
+
+    /**
+     * 注册子进程回调函数
+     */
+    private function registerCallback()
+    {
+        $this->worker->onWorkerStart = [$this, 'onWorkerStart'];
+        $this->worker->onWorkerReload = [$this, 'onWorkerReload'];
+        $this->worker->onWorkerStop = [$this, 'onWorkerStop'];
+        $this->worker->onConnect = [$this, 'onConnect'];
+        $this->worker->onMessage = [$this, 'onMessage'];
+        $this->worker->onClose = [$this, 'onClose'];
+        $this->worker->onBufferFull = [$this, 'onBufferFull'];
+        $this->worker->onBufferDrain = [$this, 'onBufferDrain'];
+        $this->worker->onError = [$this, 'onError'];
     }
 
     /**
@@ -319,7 +328,7 @@ class SystemCrontabService
      * 初始化定时任务
      * @return bool
      */
-    public function crontabInit()
+    private function crontabInit()
     {
         $jobs = $this->getCrontabs();
         foreach ($jobs as $job) {
@@ -334,7 +343,7 @@ class SystemCrontabService
      * @param array $ids
      * @return bool
      */
-    public function crontabCreate(array $ids)
+    private function crontabCreate(array $ids)
     {
         foreach ($ids as $k => $id) {
             if (isset($this->crontabPool[$id])) {
@@ -365,7 +374,7 @@ class SystemCrontabService
      * @param array $ids
      * @return bool
      */
-    public function crontabDelete(array $ids)
+    private function crontabDelete(array $ids)
     {
         if (empty($ids)) {
             return false;
@@ -386,7 +395,7 @@ class SystemCrontabService
      * @param array $ids
      * @return bool
      */
-    public function crontabReload(array $ids)
+    private function crontabReload(array $ids)
     {
         if (empty($ids)) {
             return false;
@@ -410,7 +419,7 @@ class SystemCrontabService
      * +-------------- sec (0-59)[可省略，如果没有0位,则最小时间粒度是分钟]
      * @param array $data
      */
-    protected function crontabRun(array $data)
+    private function crontabRun(array $data)
     {
         $this->crontabPool[$data['id']] = new Crontab($data['frequency'], function () use ($data) {
             $time = time();
@@ -418,23 +427,9 @@ class SystemCrontabService
             exec($shell, $output);
             $this->crontabLog(['remark' => $data['frequency'] . ' ' . $shell . '<br/>' . var_export($output, true), 'sid' => $data['id'], 'create_time' => $time]);
             if ($this->debug) {
-                echo '[' . date('Y-m-d H:i:s', $time) . '] 执行定时器任务' . $data['id'] . ' ' . $data['frequency'] . ' ' . $shell . PHP_EOL;
+                $this->writeln('执行定时器任务-' . $data['id'] . ' ' . $data['frequency'] . ' ' . $shell);
             }
         });
-    }
-
-    /**
-     * 获取所有的定时器任务
-     * @return mixed
-     */
-    protected function getCrontabs()
-    {
-        return $this->dbPool[$this->worker->id]
-            ->select('*')
-            ->from('system_crontab')
-            ->where("status=1")
-            ->orderByDESC(['sort'])
-            ->query();
     }
 
     /**
@@ -451,11 +446,118 @@ class SystemCrontabService
     }
 
     /**
+     * 获取所有的定时器任务
+     * @return mixed
+     */
+    private function getCrontabs()
+    {
+        return $this->dbPool[$this->worker->id]
+            ->select('*')
+            ->from('system_crontab')
+            ->where("status=1")
+            ->orderByDESC(['sort'])
+            ->query();
+    }
+
+    /**
+     * 获取socketName
      * @return string
      */
     public static function getSocketName()
     {
         return self::$socketName;
+    }
+
+    /**
+     * 函数是否被禁用
+     * @param $method
+     * @return bool
+     */
+    public function functionDisabled($method)
+    {
+        return in_array($method, explode(',', ini_get('disable_functions')));
+    }
+
+    /**
+     * 扩展是否加载
+     * @param $extension
+     * @return bool
+     */
+    public function extensionLoaded($extension)
+    {
+        return in_array($extension, get_loaded_extensions());
+    }
+
+    /**
+     * 是否是Linux操作系统
+     * @return bool
+     */
+    public function isLinux()
+    {
+        return strpos(PHP_OS, "Linux") !== false ? true : false;
+    }
+
+    /**
+     * 版本比较
+     * @param $version
+     * @param string $operator
+     * @return bool
+     */
+    public function versionCompare($version, $operator = ">=")
+    {
+        return version_compare(phpversion(), $version, $operator);
+    }
+
+    /**
+     * 检测运行环境
+     * @return array|bool
+     */
+    public function checkEnv()
+    {
+        $errorMsg = [];
+        $this->functionDisabled('exec') && $errorMsg[] = 'exec函数被禁用';
+        if ($this->isLinux()) {
+            $this->versionCompare('5.3.3', '<') && $errorMsg[] = 'PHP版本必须≥5.3.3';
+            $checkExt = ["pcntl", "posix"];
+            foreach ($checkExt as $ext) {
+                !$this->extensionLoaded($ext) && $errorMsg[] = $ext . '扩展没有安装';
+            }
+            $checkFunc = [
+                "stream_socket_server",
+                "stream_socket_client",
+                "pcntl_signal_dispatch",
+                "pcntl_signal",
+                "pcntl_alarm",
+                "pcntl_fork",
+                "posix_getuid",
+                "posix_getpwuid",
+                "posix_kill",
+                "posix_setsid",
+                "posix_getpid",
+                "posix_getpwnam",
+                "posix_getgrnam",
+                "posix_getgid",
+                "posix_setgid",
+                "posix_initgroups",
+                "posix_setuid",
+                "posix_isatty",
+            ];
+            foreach ($checkFunc as $func) {
+                $this->functionDisabled($func) && $errorMsg[] = $func . '函数被禁用';
+            }
+        }
+
+        return empty($errorMsg) ? true : $errorMsg;
+    }
+
+    /**
+     * 输出日志
+     * @param $msg
+     * @param bool $ok
+     */
+    public function writeln($msg, $ok = true)
+    {
+        echo '[' . date('Y-m-d H:i:s') . '] ' . $msg . ($ok ? " \033[32;40m [Ok] \033[0m" : " \033[31;40m [Fail] \033[0m\n") . PHP_EOL;
     }
 
     /**
@@ -466,11 +568,17 @@ class SystemCrontabService
      */
     public function run()
     {
-        Worker::runAll();
+        if (is_null($this->errorMsg)) {
+            Worker::runAll();
+        } else {
+            foreach ($this->errorMsg as $v) {
+                $this->writeln($v, false);
+            }
+        }
     }
 
     public function __destruct()
     {
-        echo '系统定时任务对象销毁...' . PHP_EOL;
+        $this->writeln('系统定时任务对象销毁...');
     }
 }

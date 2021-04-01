@@ -320,8 +320,43 @@ class MyToolkit
         }
     }
 
+    /**
+     * 函数是否被禁用
+     * @param $method
+     * @return bool
+     */
     public static function functionDisabled($method)
     {
         return in_array($method, explode(',', ini_get('disable_functions')));
+    }
+
+    /**
+     * 扩展是否安装
+     * @param $extension
+     * @return bool
+     */
+    public static function extensionLoaded($extension)
+    {
+        return in_array($extension, get_loaded_extensions());
+    }
+
+    /**
+     * 是否是Linux操作系统
+     * @return bool
+     */
+    public static function isLinux()
+    {
+        return strpos(PHP_OS, "Linux") !== false ? true : false;
+    }
+
+    /**
+     * 版本比较
+     * @param $version
+     * @param string $operator
+     * @return bool
+     */
+    public static function versionCompare($version, $operator = ">=")
+    {
+        return version_compare(phpversion(), $version, $operator);
     }
 }
