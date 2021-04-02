@@ -46,7 +46,7 @@ class SystemCrontabService
      * 数据库进程池
      * @var Connection[] array
      */
-    private $dbPool;
+    private $dbPool = [];
 
     /**
      * 任务进程池
@@ -302,26 +302,16 @@ class SystemCrontabService
      */
     public function onWorkerStart($worker)
     {
-        if (env('database.type') === 'mysql') {
-            try {
-                $this->dbPool[$worker->id] = new Connection(
-                    $this->dbConfig['hostname'],
-                    $this->dbConfig['hostport'],
-                    $this->dbConfig['username'],
-                    $this->dbConfig['password'],
-                    $this->dbConfig['database'],
-                    $this->dbConfig['charset']
-                );
-            } catch (\PDOException $e) {
-                $this->writeln('链接mysql数据库失败', false);
-                $this->stop();
-            }
-            $this->checkCrontabTables();
-            $this->crontabInit();
-        } else {
-            $this->writeln('仅支持mysql数据库', false);
-            $this->stop();
-        }
+        $this->dbPool[$worker->id] = new Connection(
+            $this->dbConfig['hostname'],
+            $this->dbConfig['hostport'],
+            $this->dbConfig['username'],
+            $this->dbConfig['password'],
+            $this->dbConfig['database'],
+            $this->dbConfig['charset']
+        );
+        $this->checkCrontabTables();
+        $this->crontabInit();
     }
 
     /**
@@ -673,7 +663,7 @@ class SystemCrontabService
      */
     private function checkCrontabTables()
     {
-        $allTables = $this->getDbTables(env('database.database', 'test'));
+        $allTables = $this->getDbTables($this->dbConfig['database']);
         !isset($allTables[$this->systemCrontabTable]) && $this->createSystemCrontabTable();
         !isset($allTables[$this->systemCrontabFlowTable]) && $this->createSystemCrontabFlowTable();
     }
@@ -757,20 +747,5 @@ SQL;
                 $this->writeln($v, false);
             }
         }
-    }
-
-    /**
-     * 停止当前进程（子进程）的所有Worker实例并退出
-     * 此方法用于安全退出当前子进程，作用相当于调用exit/die退出当前子进程
-     * 与直接调用exit/die区别是，直接调用exit或者die无法触发onWorkerStop回调，并且会导致一条 WORKER EXIT UNEXPECTED错误日志
-     */
-    public function stop()
-    {
-        Worker::stopAll();
-    }
-
-    public function __destruct()
-    {
-        $this->writeln('系统定时任务对象销毁...');
     }
 }

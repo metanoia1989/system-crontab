@@ -6,7 +6,7 @@
 
 1. 首先导入 `data/test.sql` 数据表
 2. 拷贝 `.example.env` 文件为 `.env`，并配置正确的数据库
-3. 项目根目录下执行 `php think crontab --m debug ` 或 `php think crontab`
+3. 项目根目录下执行 `php crontab.php ` (windows) 或 `php crontab.php start ` (linux)
 4. 访问后台 `你的域名/admin`
 
 
