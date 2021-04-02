@@ -24,6 +24,25 @@ class SystemCrontabService
     private $worker;
 
     /**
+     * 进程名
+     * @var string
+     */
+    private $workerName = "Workerman System Crontab";
+
+    /**
+     * 数据库配置
+     * @var array
+     */
+    private $dbConfig = [
+        'hostname' => '127.0.0.1',
+        'hostport' => '3306',
+        'username' => 'root',
+        'password' => 'root',
+        'database' => 'test',
+        'charset' => 'utf8mb4'
+    ];
+
+    /**
      * 数据库进程池
      * @var Connection[] array
      */
@@ -51,7 +70,31 @@ class SystemCrontabService
      * 错误信息
      * @var
      */
-    private $errorMsg;
+    private $errorMsg = [];
+
+    /**
+     * 定时任务表
+     * @var string
+     */
+    private $systemCrontabTable = 'system_crontab';
+
+    /**
+     * 定时任务日志表
+     * @var string
+     */
+    private $systemCrontabFlowTable = 'system_crontab_flow';
+
+    /**
+     * 时区
+     * @var string
+     */
+    private $timezone = 'PRC';
+
+    /**
+     * 最低PHP版本
+     * @var string
+     */
+    private $lessPhpVersion = '5.3.3';
 
     /**
      * @param string $socketName 不填写表示不监听任何端口,格式为 <协议>://<监听地址> 协议支持 tcp、udp、unix、http、websocket、text
@@ -59,17 +102,24 @@ class SystemCrontabService
      */
     public function __construct($socketName = '', array $contextOption = [])
     {
-        date_default_timezone_set('PRC');
+        $this->checkEnv();
+        $this->initWorker($socketName, $contextOption);
+    }
+
+    /**
+     * 初始化 worker
+     * @param string $socketName
+     * @param array $contextOption
+     */
+    private function initWorker($socketName = '', $contextOption = [])
+    {
         $socketName && self::$socketName = $socketName;
         $this->worker = new Worker(self::$socketName, $contextOption);
-        $this->worker->name = 'WorkermanSystemCrontab';
+        $this->worker->name = $this->workerName;
         if (isset($contextOption['ssl'])) {
             $this->worker->transport = 'ssl';//设置当前Worker实例所使用的传输层协议，目前只支持3种(tcp、udp、ssl)。默认为tcp。
         }
-        TcpConnection::$defaultMaxSendBufferSize = 2 * 1024 * 1024;//设置所有连接的默认应用层发送缓冲区大小。默认1M。可以动态设置
-        TcpConnection::$defaultMaxPackageSize = 10 * 1024 * 1024;//设置每个连接接收的数据包。默认10M。超包视为非法数据，连接会断开
         $this->registerCallback();
-        ($result = $this->checkEnv()) !== true && $this->errorMsg = $result;
     }
 
     /**
@@ -90,7 +140,7 @@ class SystemCrontabService
      * @param string $name
      * @return $this
      */
-    public function setName($name)
+    public function setName($name = "Workerman System Crontab")
     {
         $this->worker->name = $name;
 
@@ -105,7 +155,7 @@ class SystemCrontabService
      * @param int $count
      * @return $this
      */
-    public function setCount($count)
+    public function setCount($count = 1)
     {
         $this->worker->count = $count;
 
@@ -120,7 +170,7 @@ class SystemCrontabService
      * @param string $user
      * @return $this
      */
-    public function setUser($user)
+    public function setUser($user = "root")
     {
         $this->worker->user = $user;
 
@@ -148,7 +198,31 @@ class SystemCrontabService
      */
     public function setDaemon($bool = false)
     {
-        Worker::$daemonize = true;
+        Worker::$daemonize = $bool;
+
+        return $this;
+    }
+
+    /**
+     * 设置所有连接的默认应用层发送缓冲区大小。默认1M。可以动态设置
+     * @param float|int $size
+     * @return $this
+     */
+    public function setMaxSendBufferSize($size = 1024 * 1024)
+    {
+        TcpConnection::$defaultMaxSendBufferSize = $size;
+
+        return $this;
+    }
+
+    /**
+     * 设置每个连接接收的数据包。默认10M。超包视为非法数据，连接会断开
+     * @param float|int $size
+     * @return $this
+     */
+    public function setMaxPackageSize($size = 10 * 1024 * 1024)
+    {
+        TcpConnection::$defaultMaxPackageSize = $size;
 
         return $this;
     }
@@ -160,7 +234,7 @@ class SystemCrontabService
      * @param string $path
      * @return $this
      */
-    public function setLogFile($path)
+    public function setLogFile($path = "./workerman.log")
     {
         Worker::$logFile = $path;
 
@@ -175,9 +249,33 @@ class SystemCrontabService
      * @param string $path
      * @return $this
      */
-    public function setStdoutFile($path)
+    public function setStdoutFile($path = "./workerman_debug.log")
     {
         Worker::$stdoutFile = $path;
+
+        return $this;
+    }
+
+    /**
+     * 设置数据库链接信息
+     * @param array $config
+     * @return $this
+     */
+    public function setDbConfig(array $config = [])
+    {
+        $this->dbConfig = array_merge($this->dbConfig, $config);
+
+        return $this;
+    }
+
+    /**
+     * 设置时区
+     * @param string $timezone
+     * @return $this
+     */
+    public function setTimezone($timezone = "PRC")
+    {
+        $this->timezone = $timezone;
 
         return $this;
     }
@@ -205,15 +303,24 @@ class SystemCrontabService
     public function onWorkerStart($worker)
     {
         if (env('database.type') === 'mysql') {
-            $this->dbPool[$worker->id] = new Connection(
-                env('database.hostname', '127.0.0.1'),
-                env('database.hostport', '3306'),
-                env('database.username', 'root'),
-                env('database.PASSWORD', 'root'),
-                env('database.database', 'test'),
-                env('database.CHARSET', 'utf8mb4')
-            );
+            try {
+                $this->dbPool[$worker->id] = new Connection(
+                    $this->dbConfig['hostname'],
+                    $this->dbConfig['hostport'],
+                    $this->dbConfig['username'],
+                    $this->dbConfig['password'],
+                    $this->dbConfig['database'],
+                    $this->dbConfig['charset']
+                );
+            } catch (\PDOException $e) {
+                $this->writeln('链接mysql数据库失败', false);
+                $this->stop();
+            }
+            $this->checkCrontabTables();
             $this->crontabInit();
+        } else {
+            $this->writeln('仅支持mysql数据库', false);
+            $this->stop();
         }
     }
 
@@ -357,7 +464,7 @@ class SystemCrontabService
 
         $data = $this->dbPool[$this->worker->id]
             ->select('*')
-            ->from('system_crontab')
+            ->from($this->systemCrontabTable)
             ->where('id in (:ids)')
             ->bindValues(['ids' => join(',', $ids)])
             ->query();
@@ -440,7 +547,7 @@ class SystemCrontabService
     private function crontabLog(array $data)
     {
         return $this->dbPool[$this->worker->id]
-            ->insert('system_crontab_flow')
+            ->insert($this->systemCrontabFlowTable)
             ->cols($data)
             ->query();
     }
@@ -453,7 +560,7 @@ class SystemCrontabService
     {
         return $this->dbPool[$this->worker->id]
             ->select('*')
-            ->from('system_crontab')
+            ->from($this->systemCrontabTable)
             ->where("status=1")
             ->orderByDESC(['sort'])
             ->query();
@@ -510,14 +617,13 @@ class SystemCrontabService
 
     /**
      * 检测运行环境
-     * @return array|bool
      */
     public function checkEnv()
     {
         $errorMsg = [];
         $this->functionDisabled('exec') && $errorMsg[] = 'exec函数被禁用';
         if ($this->isLinux()) {
-            $this->versionCompare('5.3.3', '<') && $errorMsg[] = 'PHP版本必须≥5.3.3';
+            $this->versionCompare($this->lessPhpVersion, '<') && $errorMsg[] = 'PHP版本必须≥' . $this->lessPhpVersion;
             $checkExt = ["pcntl", "posix"];
             foreach ($checkExt as $ext) {
                 !$this->extensionLoaded($ext) && $errorMsg[] = $ext . '扩展没有安装';
@@ -547,7 +653,9 @@ class SystemCrontabService
             }
         }
 
-        return empty($errorMsg) ? true : $errorMsg;
+        if (!empty($errorMsg)) {
+            $this->errorMsg = array_merge($this->errorMsg, $errorMsg);
+        }
     }
 
     /**
@@ -557,7 +665,80 @@ class SystemCrontabService
      */
     public function writeln($msg, $ok = true)
     {
-        echo '[' . date('Y-m-d H:i:s') . '] ' . $msg . ($ok ? " \033[32;40m [Ok] \033[0m" : " \033[31;40m [Fail] \033[0m\n") . PHP_EOL;
+        echo '[' . date('Y-m-d H:i:s') . '] ' . $msg . ($ok ? " \033[32;40m [Ok] \033[0m" : " \033[31;40m [Fail] \033[0m") . PHP_EOL;
+    }
+
+    /**
+     * 检测表是否存在
+     */
+    private function checkCrontabTables()
+    {
+        $allTables = $this->getDbTables(env('database.database', 'test'));
+        !isset($allTables[$this->systemCrontabTable]) && $this->createSystemCrontabTable();
+        !isset($allTables[$this->systemCrontabFlowTable]) && $this->createSystemCrontabFlowTable();
+    }
+
+    /**
+     * 创建定时器任务表
+     */
+    private function createSystemCrontabTable()
+    {
+        $sql = <<<SQL
+ CREATE TABLE IF NOT EXISTS `{$this->systemCrontabTable}`  (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `title` varchar(60) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '任务标题',
+  `type` tinyint(4) NOT NULL DEFAULT 0 COMMENT '任务类型[0请求url,1执行sql,2执行shell]',
+  `frequency` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '任务频率',
+  `shell` varchar(150) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL DEFAULT '' COMMENT '任务脚本',
+  `remark` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '任务备注',
+  `sort` int(11) NOT NULL DEFAULT 0 COMMENT '排序，越大越前',
+  `status` tinyint(4) NOT NULL DEFAULT 0 COMMENT '任务状态状态[0:禁用;1启用]',
+  `create_time` int(11) NOT NULL DEFAULT 0 COMMENT '创建时间',
+  `update_time` int(11) NOT NULL DEFAULT 0 COMMENT '更新时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `title`(`title`) USING BTREE,
+  INDEX `type`(`type`) USING BTREE,
+  INDEX `create_time`(`create_time`) USING BTREE,
+  INDEX `status`(`status`) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '定时器任务表' ROW_FORMAT = DYNAMIC
+SQL;
+
+        return $this->dbPool[$this->worker->id]->query($sql);
+    }
+
+    /**
+     * 定时器任务流水表
+     */
+    private function createSystemCrontabFlowTable()
+    {
+        $sql = <<<SQL
+CREATE TABLE IF NOT EXISTS `{$this->systemCrontabFlowTable}`  (
+  `id` int(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+  `sid` int(60) NOT NULL COMMENT '任务id',
+  `remark` text CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci NOT NULL COMMENT '备注',
+  `create_time` int(11) NOT NULL DEFAULT 0 COMMENT '创建时间',
+  `update_time` int(11) NULL DEFAULT 0 COMMENT '更新时间',
+  PRIMARY KEY (`id`) USING BTREE,
+  INDEX `create_time`(`create_time`) USING BTREE
+) ENGINE = InnoDB AUTO_INCREMENT = 1 CHARACTER SET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '定时器任务流水表' ROW_FORMAT = DYNAMIC
+SQL;
+
+        return $this->dbPool[$this->worker->id]->query($sql);
+    }
+
+    /**
+     * 获取数据库表名
+     * @param $dbname
+     * @return array
+     */
+    private function getDbTables($dbname)
+    {
+        return $this->dbPool[$this->worker->id]
+            ->select('TABLE_NAME')
+            ->from('information_schema.TABLES')
+            ->where("TABLE_TYPE='BASE TABLE'")
+            ->where("TABLE_SCHEMA='" . $dbname . "'")
+            ->column();
     }
 
     /**
@@ -568,13 +749,24 @@ class SystemCrontabService
      */
     public function run()
     {
-        if (is_null($this->errorMsg)) {
+        date_default_timezone_set($this->timezone);
+        if (empty($this->errorMsg)) {
             Worker::runAll();
         } else {
             foreach ($this->errorMsg as $v) {
                 $this->writeln($v, false);
             }
         }
+    }
+
+    /**
+     * 停止当前进程（子进程）的所有Worker实例并退出
+     * 此方法用于安全退出当前子进程，作用相当于调用exit/die退出当前子进程
+     * 与直接调用exit/die区别是，直接调用exit或者die无法触发onWorkerStop回调，并且会导致一条 WORKER EXIT UNEXPECTED错误日志
+     */
+    public function stop()
+    {
+        Worker::stopAll();
     }
 
     public function __destruct()
