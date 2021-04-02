@@ -4,6 +4,8 @@ use app\admin\service\SystemCrontabService;
 
 require_once "vendor/autoload.php";
 
+date_default_timezone_set('PRC');
+
 $dbConfig = [
     'hostname' => '127.0.0.1',
     'hostport' => '3306',

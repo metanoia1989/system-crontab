@@ -85,12 +85,6 @@ class SystemCrontabService
     private $systemCrontabFlowTable = 'system_crontab_flow';
 
     /**
-     * 时区
-     * @var string
-     */
-    private $timezone = 'PRC';
-
-    /**
      * 最低PHP版本
      * @var string
      */
@@ -264,18 +258,6 @@ class SystemCrontabService
     public function setDbConfig(array $config = [])
     {
         $this->dbConfig = array_merge($this->dbConfig, $config);
-
-        return $this;
-    }
-
-    /**
-     * 设置时区
-     * @param string $timezone
-     * @return $this
-     */
-    public function setTimezone($timezone = "PRC")
-    {
-        $this->timezone = $timezone;
 
         return $this;
     }
@@ -739,7 +721,6 @@ SQL;
      */
     public function run()
     {
-        date_default_timezone_set($this->timezone);
         if (empty($this->errorMsg)) {
             Worker::runAll();
         } else {
